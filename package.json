@@ -1,0 +1,28 @@
+{
+  "name": "hooktriage",
+  "version": "1.0.0",
+  "description": "Zero-Trust 0-byte local static scanner & MCP server for n8n workflows, webhooks, and AI agent silent failures.",
+  "type": "module",
+  "bin": {
+    "hooktriage": "./bin/hooktriage.js"
+  },
+  "keywords": [
+    "n8n",
+    "webhook",
+    "mcp",
+    "workflow-audit",
+    "automation",
+    "reliability",
+    "silent-failure"
+  ],
+  "author": "Mohamed Grine (@grinem) <ops@hooktriage.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/grinem/hooktriage.git"
+  },
+  "homepage": "https://hooktriage.com",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
