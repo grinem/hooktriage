@@ -32,7 +32,8 @@ function scanWorkflowObject(parsed) {
   const wfName = scrubSecrets(parsed.name || "Unnamed n8n Workflow").slice(0, 120);
   const settings = parsed.settings || {};
 
-  if (!settings.errorWorkflow) {
+  const isErrorHandler = parsed.nodes.some((n) => /errorTrigger/i.test(String(n.type || "")));
+  if (!isErrorHandler && !settings.errorWorkflow) {
     findings.push({
       severity: "HIGH",
       category: "missing_error_workflow",
