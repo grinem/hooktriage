@@ -42,6 +42,15 @@ Exposes the local read-only tool **`scan_n8n_workflow_json`** which detects:
 
 ---
 
+
+## 🧩 1-Click AI Agent Skill (Claude Code, Cursor, Copilot, 20+ Agents)
+
+Install the verified, security-scanned **HookTriage** skill directly into your AI coding agent via Agensi (Free):
+
+- **[Install HookTriage Skill on Agensi (Free)](https://www.agensi.io/r/HOOKTRIAGE?to=/skills/hooktriage-n8n-webhook-silent-failure-auditor&utm_source=github)**
+
+---
+
 ## 🔗 Companion Resources
 
 - **Live Knowledge Base & Web Pre-Scanner**: [https://hooktriage.com](https://hooktriage.com)
