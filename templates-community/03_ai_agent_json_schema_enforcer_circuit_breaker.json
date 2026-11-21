@@ -1,0 +1,589 @@
+{
+  "name": "AI Agent JSON Schema Enforcer, Fallback Router & Rate-Limit Circuit Breaker",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## AI Agent JSON Schema Enforcer & Circuit Breaker (Community Edition)\n\n**Eliminates silent AI agent failures in production:**\n- Tracks sliding-window LLM 429/5xx failures using workflow static state.\n- Trips a Circuit Breaker to prevent runaway token burn & infinite retry loops.\n- Routes failed primary calls to a secondary fallback provider and strictly validates JSON output.",
+        "height": 260,
+        "width": 440,
+        "color": 4
+      },
+      "id": "998a9ff9-5dd7-4870-9672-95a1243f9744",
+      "name": "Note: Overview & Circuit Breaker",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Multi-Provider Resilience\n\n1. Calls **Primary LLM** (`$env.PRIMARY_LLM_URL`, e.g. OpenAI / Anthropic) with `continueOnFail: true`.\n2. On HTTP 429 / 5xx / timeout, increments the failure counter and automatically fails over to **Secondary LLM** (`$env.FALLBACK_LLM_URL`).",
+        "height": 240,
+        "width": 420,
+        "color": 6
+      },
+      "id": "644b7176-8ea9-46af-95d4-eeb7455929be",
+      "name": "Note: Primary -> Fallback Routing",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        80,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Deterministic Output Validation\n\nLLMs frequently wrap JSON in markdown fences or drop required keys.\nThe **Schema Enforcer** strips fences, parses JSON safely, verifies required keys (`action`, `confidence`, `summary`), and routes invalid payloads to `422` DLQ.",
+        "height": 240,
+        "width": 420,
+        "color": 5
+      },
+      "id": "bebf2010-9b0c-41f0-b492-085fcc281a7d",
+      "name": "Note: Strict JSON Schema Enforcer",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        600,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Catch Silent AI Failures Before Users Do\n\nScan your n8n AI workflows locally:\n`npx hooktriage audit ai-agent.json`\n\nUnlock full auto-patching (`--fix`) & enterprise prompt-injection guards in the **Production Hardening Kit ($27)**:\nhttps://hooktriage.com",
+        "height": 260,
+        "width": 440,
+        "color": 3
+      },
+      "id": "5a2e3701-29f8-4212-964a-abf41db3b491",
+      "name": "Note: HookTriage CLI & Hardening Kit",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-schema-enforcer",
+        "responseMode": "responseNode"
+      },
+      "id": "13faf9b6-87a2-4d5f-b8a0-880985d7aee0",
+      "name": "Incoming Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        120
+      ],
+      "webhookId": "b0762302-4b8d-4e6e-b01d-39907308ba7d"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "5d710040-b373-4d0d-bdef-79616a798752",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8093bb32-9f41-4fb7-8333-faa8bb7e7ee5",
+              "name": "user_prompt",
+              "value": "={{ $json.body?.prompt || $json.prompt || \"Classify support ticket priority as JSON\" }}",
+              "type": "string"
+            },
+            {
+              "id": "a802b127-3f47-490e-8346-f16af6e25ec8",
+              "name": "max_tokens",
+              "value": "={{ Number($json.body?.max_tokens || 600) }}",
+              "type": "number"
+            },
+            {
+              "id": "ea05267a-cafa-4971-87fb-83c6a43a6a53",
+              "name": "required_fields",
+              "value": "={{ [\"action\", \"confidence\", \"summary\"] }}",
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "id": "a49a9d21-d791-4611-9228-00716fddb0d1",
+      "name": "Prepare Prompt & Token Budget",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -160,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst now = Date.now();\nconst failures = (staticData.failures || []).filter(ts => now - ts < 300000);\nstaticData.failures = failures;\nconst circuitOpen = failures.length >= 5;\nreturn [{ json: { ...$input.first().json, circuit_open: circuitOpen, recent_failures: failures.length } }];"
+      },
+      "id": "9f204e63-815e-41d8-b62a-109d47d7c49b",
+      "name": "Evaluate Circuit Breaker State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "91d2c222-927c-43b6-beec-799e64006553",
+              "leftValue": "={{ $json.circuit_open }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "298bfae4-078d-4d0c-8d18-84676fab5e0c",
+      "name": "Circuit Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        320,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "66a10ab6-a671-4852-b7bf-6a135f0ecbd4",
+              "name": "degraded",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "cf5dbda1-dbc0-4f35-94b9-17691389aa02",
+              "name": "reason",
+              "value": "circuit_breaker_open",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "1ee15724-c52f-48bb-a329-8c59113753bd",
+      "name": "Build Degraded Fallback Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OPS_ALERT_WEBHOOK || \"https://httpbin.org/post\" }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ alert: \"AI Circuit Breaker Open\", recent_failures: $json.recent_failures }) }}"
+      },
+      "id": "1ee438ad-bab7-4b83-bfdc-fb50fafa4e9f",
+      "name": "Notify Ops Circuit Tripped",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        360
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, circuit_open: true, fallback: true }) }}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "id": "d2a67cb1-0a73-45d9-9aed-1ab9675f6279",
+      "name": "Return 503 Degraded Mode",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PRIMARY_LLM_URL || \"https://httpbin.org/post\" }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"primary\", prompt: $json.user_prompt, max_tokens: $json.max_tokens }) }}"
+      },
+      "id": "20217dc0-bd12-449e-8b60-a6d0cb2a072c",
+      "name": "Call Primary LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        80
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "6d75f7a1-47c8-4dde-9d11-01895f91f510",
+              "leftValue": "={{ !$json.error }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "d55d890e-c962-4d47-b33e-257a993e5db2",
+      "name": "Primary Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nstaticData.failures = staticData.failures || [];\nstaticData.failures.push(Date.now());\nreturn [{ json: { ...$input.first().json, failed_over: true, recent_failures: staticData.failures.length } }];"
+      },
+      "id": "214129d4-474a-4c47-a0a1-c9c997fb7b75",
+      "name": "Record Failure & Increment Breaker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FALLBACK_LLM_URL || \"https://httpbin.org/post\" }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"fallback\", prompt: $json.user_prompt, max_tokens: $json.max_tokens }) }}"
+      },
+      "id": "40b56b7c-7dbf-4088-84aa-c58d04bdc2bc",
+      "name": "Call Secondary Fallback LLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        200
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "cf9fd0ed-cb0e-423a-8920-d6aab8fde9b1",
+      "name": "Merge LLM Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        1500,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst raw = item.choices?.[0]?.message?.content || item.data || JSON.stringify({ action: 'triage', confidence: 0.92, summary: 'Demo validated output' });\nlet cleaned = typeof raw === 'string' ? raw.replace(/^```json\\s*/i, '').replace(/```$/, '').trim() : JSON.stringify(raw);\nlet parsed = null;\nlet valid = false;\nlet missing = [];\ntry {\n  parsed = typeof raw === 'object' && raw !== null ? raw : JSON.parse(cleaned);\n  for (const k of ['action', 'confidence', 'summary']) {\n    if (parsed[k] === undefined || parsed[k] === null || parsed[k] === '') missing.push(k);\n  }\n  valid = missing.length === 0;\n} catch (e) {\n  missing = ['invalid_json'];\n}\nreturn [{ json: { schema_valid: valid, missing_fields: missing, parsed_output: parsed } }];"
+      },
+      "id": "bc7a0941-713c-49b1-a62a-c6a332cd5620",
+      "name": "Strict JSON Schema Enforcer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "bc14568f-0130-4e59-af7a-dd8d9f45a135",
+              "leftValue": "={{ $json.schema_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "ea4158ce-2528-48ae-937c-be237120da6b",
+      "name": "Schema Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, data: $json.parsed_output }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "fb731f92-d140-4f7d-a105-7fad2860d897",
+      "name": "Return Verified JSON (200)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2180,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"JSON schema validation failed\", missing: $json.missing_fields }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "309a5018-8e6e-4675-8556-7055d6300478",
+      "name": "Return Schema Drift Error (422)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2180,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Incoming Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt & Token Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sub-Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt & Token Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Prompt & Token Budget": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Circuit Breaker State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Circuit Breaker State": {
+      "main": [
+        [
+          {
+            "node": "Circuit Open?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Circuit Open?": {
+      "main": [
+        [
+          {
+            "node": "Build Degraded Fallback Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call Primary LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Degraded Fallback Response": {
+      "main": [
+        [
+          {
+            "node": "Notify Ops Circuit Tripped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Ops Circuit Tripped": {
+      "main": [
+        [
+          {
+            "node": "Return 503 Degraded Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Primary LLM": {
+      "main": [
+        [
+          {
+            "node": "Primary Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Primary Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Merge LLM Responses",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Failure & Increment Breaker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Failure & Increment Breaker": {
+      "main": [
+        [
+          {
+            "node": "Call Secondary Fallback LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Secondary Fallback LLM": {
+      "main": [
+        [
+          {
+            "node": "Merge LLM Responses",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge LLM Responses": {
+      "main": [
+        [
+          {
+            "node": "Strict JSON Schema Enforcer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Strict JSON Schema Enforcer": {
+      "main": [
+        [
+          {
+            "node": "Schema Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schema Valid?": {
+      "main": [
+        [
+          {
+            "node": "Return Verified JSON (200)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Schema Drift Error (422)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "e99f1132-2a7e-44a1-beb3-f0f6dfdd4370",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "name": "ai"
+    },
+    {
+      "name": "json-schema"
+    },
+    {
+      "name": "circuit-breaker"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "name": "hooktriage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Zero-Trust 0-byte local static scanner & MCP server for n8n workflows, webhooks, and AI agent silent failures.",
   "type": "module",
   "bin": {

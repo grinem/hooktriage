@@ -22,6 +22,34 @@ npx -y github:grinem/hooktriage scan ./my-workflow.json --json
 
 ---
 
+## 🔧 Pro Auto-Patch (`fix`) — 100% Offline
+
+Free audit (always free, MIT):
+
+```bash
+npx -y github:grinem/hooktriage audit ./my-workflow.json
+```
+
+One-command auto-hardening of **your own** workflow (timeouts, retry/backoff, `errorWorkflow`, DLQ error branches, PII scrubber) — license key included in the Pro Kit:
+
+```bash
+npx -y github:grinem/hooktriage fix ./my-workflow.json --key=HT-PRO-...
+```
+
+The key is verified locally with an Ed25519 public key: **0 network calls, 0 bytes uploaded**.
+
+---
+
+## 🧱 Community Edition Blueprints (free, import in n8n via *Import from URL*)
+
+| Blueprint | Import URL |
+|---|---|
+| Production Error Handler — Zero-Trust PII Scrubber, DLQ & Exponential Backoff | `https://raw.githubusercontent.com/grinem/hooktriage/main/templates-community/01_production_error_handler_zero_trust_scrubber.json` |
+| Stripe & Shopify Webhook Idempotency Guard & HMAC Signature Verifier | `https://raw.githubusercontent.com/grinem/hooktriage/main/templates-community/02_stripe_shopify_webhook_idempotency_hmac_guard.json` |
+| AI Agent JSON Schema Enforcer, Fallback Router & Rate-Limit Circuit Breaker | `https://raw.githubusercontent.com/grinem/hooktriage/main/templates-community/03_ai_agent_json_schema_enforcer_circuit_breaker.json` |
+
+---
+
 ## 🤖 Use as an MCP Server in Cursor / Claude Code / Antigravity
 
 Add this to your MCP configuration (`mcp.json` / `.cursor/mcp.json`):

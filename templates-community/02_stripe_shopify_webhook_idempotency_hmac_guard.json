@@ -1,0 +1,565 @@
+{
+  "name": "Stripe & Shopify Webhook Idempotency Guard & HMAC Signature Verifier",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Stripe & Shopify Webhook Idempotency Guard (Community Edition)\n\n**Prevents two silent production disasters:**\n1. **Spoofed Webhooks:** Enforces cryptographic HMAC-SHA256 verification with timing-safe comparison and 300s replay-window protection.\n2. **Duplicate Retries:** Deduplicates Stripe/Shopify retry storms via an atomic idempotency key lock before fulfillment runs.",
+        "height": 260,
+        "width": 440,
+        "color": 4
+      },
+      "id": "0042244b-3824-4f67-a430-64b0381f5641",
+      "name": "Note: Overview & Threat Model",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Cryptographic Signature Verification\n\n- **Stripe:** Parses `t=<ts>,v1=<sig>` from `stripe-signature`, validates timestamp skew <= 300s, verifies HMAC-SHA256 hex digest.\n- **Shopify:** Verifies `x-shopify-hmac-sha256` base64 digest against raw body using `crypto.timingSafeEqual`.",
+        "height": 240,
+        "width": 420,
+        "color": 6
+      },
+      "id": "0e1d4ffc-22dd-48c6-bd51-fc31bd7ab995",
+      "name": "Note: HMAC Verification Rules",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        40,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Idempotency Store Env Vars\n\nPoint `IDEMPOTENCY_KV_URL` to your Redis REST / Upstash / Supabase endpoint (or Postgres lookup) and set:\n- `STRIPE_WEBHOOK_SECRET`\n- `SHOPIFY_WEBHOOK_SECRET`\n- `FULFILLMENT_WEBHOOK_URL`",
+        "height": 240,
+        "width": 400,
+        "color": 5
+      },
+      "id": "efdff8bb-c9b1-4873-b511-35e4ab1c982c",
+      "name": "Note: Idempotency Store Setup",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        560,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Audit Your Webhook Nodes Automatically\n\nRun our free local zero-trust scanner on any n8n export:\n`npx hooktriage audit my-workflow.json`\n\nNeed prebuilt Redis/Postgres idempotency adapters & 1-click `--fix`?\nUnlock the **Production Hardening Kit ($27)** at:\nhttps://hooktriage.com",
+        "height": 260,
+        "width": 440,
+        "color": 3
+      },
+      "id": "9ac357c8-4158-4bad-9328-da2a776d1425",
+      "name": "Note: HookTriage CLI & Hardening Kit",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "payment-webhook-guard",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "1bb2c516-4ef1-44dc-933d-aa0e1c0d860d",
+      "name": "Receive Payment Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -420,
+        180
+      ],
+      "webhookId": "db2682b3-70d8-42a0-850c-d7595ac5cca0"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "id": "d7dfb82d-ba47-454e-bd27-af9e53217413",
+                    "leftValue": "={{ $json.headers[\"stripe-signature\"] || \"\" }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "stripe"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "id": "09a011a1-7d0e-44d3-9fea-eb407599d5b2",
+                    "leftValue": "={{ $json.headers[\"x-shopify-hmac-sha256\"] || \"\" }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty"
+                    }
+                  }
+                ]
+              },
+              "outputKey": "shopify"
+            }
+          ]
+        }
+      },
+      "id": "3e20d445-7b26-44b5-b9c2-5495acc089a8",
+      "name": "Detect Provider",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -180,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first().json;\nconst sigHeader = item.headers?.['stripe-signature'] || '';\nconst secret = $env.STRIPE_WEBHOOK_SECRET || 'whsec_demo_placeholder';\nconst parts = Object.fromEntries(sigHeader.split(',').map(p => p.split('=')));\nconst ts = Number(parts.t || 0);\nconst raw = typeof item.body === 'string' ? item.body : JSON.stringify(item.body || {});\nconst expected = crypto.createHmac('sha256', secret).update(`${ts}.${raw}`).digest('hex');\nconst skewOk = Math.abs(Math.floor(Date.now() / 1000) - ts) <= 300;\nconst valid = Boolean(parts.v1 && skewOk && parts.v1.length === expected.length && crypto.timingSafeEqual(Buffer.from(parts.v1), Buffer.from(expected)));\nreturn [{ json: { provider: 'stripe', signature_valid: valid, event_id: item.body?.id || 'evt_unknown', event_type: item.body?.type || 'unknown', payload: item.body || {} } }];"
+      },
+      "id": "20baf8cc-10de-4fbe-a074-f4a204ddc653",
+      "name": "Verify Stripe HMAC-SHA256",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first().json;\nconst hmac = item.headers?.['x-shopify-hmac-sha256'] || '';\nconst secret = $env.SHOPIFY_WEBHOOK_SECRET || 'shopify_demo_placeholder';\nconst raw = typeof item.body === 'string' ? item.body : JSON.stringify(item.body || {});\nconst expected = crypto.createHmac('sha256', secret).update(raw, 'utf8').digest('base64');\nconst valid = Boolean(hmac && hmac.length === expected.length && crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expected)));\nreturn [{ json: { provider: 'shopify', signature_valid: valid, event_id: item.headers?.['x-shopify-webhook-id'] || String(item.body?.id || 'shp_unknown'), event_type: item.headers?.['x-shopify-topic'] || 'orders/paid', payload: item.body || {} } }];"
+      },
+      "id": "3eed254b-cbbd-449c-a8f0-06ccc4e71390",
+      "name": "Verify Shopify HMAC-SHA256",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "e7f96a06-249f-4059-ba34-5d44dc0cab9d",
+      "name": "Merge Verified Payloads",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        340,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "933ba6ac-797c-4282-a156-952ecf8ab6b1",
+              "leftValue": "={{ $json.signature_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "0e0b5f27-c9f0-4e9a-bad3-fc4937f3b16f",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        560,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a38b3fd1-d37b-45c0-90fc-21c3f0a0e9e5",
+              "name": "status",
+              "value": "rejected_invalid_hmac",
+              "type": "string"
+            },
+            {
+              "id": "e70fa8bc-a1cd-4cc4-b4f7-d14b81931a34",
+              "name": "rejected_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "b28e4107-4dc0-4f2c-95ee-b8685250942b",
+      "name": "Log Security Rejection",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, error: \"Invalid webhook signature\" }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "58520c4a-9eab-44ba-b38c-9ed72e97ec28",
+      "name": "Respond 401 Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "45b5efd8-dfdc-4582-a2e0-f5be9ea5c9e0",
+              "name": "idempotency_key",
+              "value": "={{ $json.provider + \":\" + $json.event_id }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "eb32d459-dfdf-49d9-8fd1-2d81ff303c2c",
+      "name": "Build Idempotency Key",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        800,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.IDEMPOTENCY_KV_URL || \"https://httpbin.org/get\") + \"?key=\" + encodeURIComponent($json.idempotency_key) }}"
+      },
+      "id": "9fb454e0-5e13-43b8-9347-1283e127b0ea",
+      "name": "Check Idempotency Store",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        100
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "5c6287fa-9b01-4f2b-a487-2da0134f4018",
+              "leftValue": "={{ Boolean($json.exists || $json.duplicate) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "id": "bc895697-85a8-42e5-8755-a13ed0b0d717",
+      "name": "Is Duplicate Event?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, deduplicated: true, idempotency_key: $json.idempotency_key }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e45e43cd-5723-449f-9406-c65546fca74b",
+      "name": "Respond 200 Duplicate Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1480,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.IDEMPOTENCY_KV_URL || \"https://httpbin.org/post\" }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ key: $json.idempotency_key, ttl_seconds: 86400 }) }}"
+      },
+      "id": "231f8dcc-7de3-4aa4-8fdb-757f2ef0e800",
+      "name": "Record Event Lock (TTL 24h)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        20
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b8c1d7ec-c156-4ea0-94e1-c11d56f05efe",
+              "name": "normalized_event",
+              "value": "={{ $json.provider + \".\" + $json.event_type }}",
+              "type": "string"
+            },
+            {
+              "id": "70aff7a0-d1dc-4229-9ca9-da413e2f8427",
+              "name": "processed_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "f1e9147c-fdcb-45d9-a5e2-8144f8418005",
+      "name": "Normalize Commerce Event",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1720,
+        20
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, deduplicated: false, event: $json.normalized_event }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "25befb96-c321-4e2a-afb5-a2a85cc998f7",
+      "name": "Respond 200 Processed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1960,
+        20
+      ]
+    }
+  ],
+  "connections": {
+    "Receive Payment Webhook": {
+      "main": [
+        [
+          {
+            "node": "Detect Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Provider": {
+      "main": [
+        [
+          {
+            "node": "Verify Stripe HMAC-SHA256",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Verify Shopify HMAC-SHA256",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Stripe HMAC-SHA256": {
+      "main": [
+        [
+          {
+            "node": "Merge Verified Payloads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Shopify HMAC-SHA256": {
+      "main": [
+        [
+          {
+            "node": "Merge Verified Payloads",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Verified Payloads": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Build Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Security Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Security Rejection": {
+      "main": [
+        [
+          {
+            "node": "Respond 401 Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Check Idempotency Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Idempotency Store": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate Event?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate Event?": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Duplicate Ack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Event Lock (TTL 24h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Event Lock (TTL 24h)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Commerce Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Commerce Event": {
+      "main": [
+        [
+          {
+            "node": "Respond 200 Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "versionId": "f35dab9b-1da6-4d94-a1fe-0e0c28e38411",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "name": "stripe"
+    },
+    {
+      "name": "shopify"
+    },
+    {
+      "name": "webhooks"
+    },
+    {
+      "name": "security"
+    }
+  ]
+}
